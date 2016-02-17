@@ -21,6 +21,7 @@ print
 print
 print
 print
+print
 
 print isoFileAmigaPath
 numDirectories = 1
