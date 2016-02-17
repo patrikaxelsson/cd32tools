@@ -4,8 +4,8 @@ import sys
 import struct
 
 if len(sys.argv) == 2:
-	isoFile = file(sys.argv[1])
-	#isoFile = file(sys.argv[1], "r+")
+	isoFile = file(sys.argv[1], "rb")
+	#isoFile = file(sys.argv[1], "rb+")
 else:
 	raise SystemExit("Usage: " + sys.argv[0].split('/')[-1] + " isoFile")
 
