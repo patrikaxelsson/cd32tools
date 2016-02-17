@@ -22,34 +22,61 @@ print
 print
 print
 print
+print
+
+directories = {}
+
+class Directory:
+	def __init__(self, path, fileNames):
+		self.path = path
+		pathParts = path.split("/")
+		self.depth = len(pathParts)
+		if pathParts[-1] != "":
+			self.name = pathParts[-1]
+		else:
+			self.name = "<Root Dir>"
+		self.fileNames = sorted(fileNames, key=lambda s: s.lower())
+	
+	def getParentPath(self):
+		return self.path.rsplit("/", 1)[0]
+
+	def getParent(self):
+		return directories[self.getParentPath()]
+	
+	def __lt__(self, other):
+		if self.depth < other.depth:
+			return True
+		elif self.depth == other.depth:
+			return self.path.upper().split("/") < other.path.upper().split("/")
+		else:
+			return False
+	
+	def __repr__(self):
+		return str(self.depth) + " " + self.name + "-->" + self.getParent().name
+	
 
 print isoFileAmigaPath
-numDirectories = 1
-for rootPath, dirNames, fileNames in os.walk(sourceDir):
-	if rootPath == sourceDir:
-		continue
-	numDirectories = numDirectories + 1
-print "{:04d}".format(numDirectories) + "\t" + sourceDirAmigaPath
-print " 0001\t<Root Dir>"
-dirNum = 1
-for rootPath, dirNames, fileNames in os.walk(sourceDir):
-	for dirName in dirNames:
-		print " " + "{:04d}".format(dirNum) + "\t" + dirName
-	dirNum = dirNum + 1
+for rootPath, dirNames, fileNames in os.walk(sourceDir.rstrip("/")):
+	path = rootPath.split(sourceDir)[-1]
+	directories[path] = Directory(path, fileNames)
+
+directoryList = directories.values()
+directoryList.sort()
+for i, directory in enumerate(directoryList):
+	directory.num = i + 1
+
+print "{:04d}".format(len(directoryList)) + "\t" + sourceDirAmigaPath
+for directory in directoryList:
+	parent = directory.getParent()
+	print " {:04d}".format(parent.num) + "\t" + directory.name
 print
 
 print "H0000\t<ISO Header>"
 print "P0000\t<Path Table>"
 print "P0000\t<Path Table>"
 print "C0000\t<Trademark>"
-dirNum = 1
-for rootPath, dirNames, fileNames in os.walk(sourceDir):
-	if rootPath == sourceDir:
-		dirName = "<Root Dir>"
-	else:
-		dirName = rootPath.split('/')[-1]
-	print "D" + "{:04d}".format(dirNum) + "\t" + dirName
-	for fileName in fileNames:
-		print "F" + "{:04d}".format(dirNum) + "\t" + fileName
-	dirNum = dirNum + 1
+for directory in directoryList:
+	print "D" + "{:04d}".format(directory.num) + "\t" + directory.name
+	for fileName in directory.fileNames:
+		print "F" + "{:04d}".format(directory.num) + "\t" + fileName
 print "E0000\t65536    "
