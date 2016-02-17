@@ -23,11 +23,18 @@ print
 print
 
 print isoFileAmigaPath
+numDirectories = 1
 for rootPath, dirNames, fileNames in os.walk(sourceDir):
-	print "{:04d}".format(len(dirNames) + 1) + "\t" + sourceDirAmigaPath
-	for index, dirName in enumerate(dirNames):
-		print " " + "{:04d}".format(index + 1) + "\t" + dirName
-	break;
+	if rootPath == sourceDir:
+		continue
+	numDirectories = numDirectories + 1
+print "{:04d}".format(numDirectories) + "\t" + sourceDirAmigaPath
+print " 0001\t<Root Dir>"
+dirNum = 1
+for rootPath, dirNames, fileNames in os.walk(sourceDir):
+	for dirName in dirNames:
+		print " " + "{:04d}".format(dirNum) + "\t" + dirName
+	dirNum = dirNum + 1
 print
 
 print "H0000\t<ISO Header>"
