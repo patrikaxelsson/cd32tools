@@ -4,17 +4,18 @@ import sys
 import os
 from collections import deque
 
-if len(sys.argv) in (5,6):
+if len(sys.argv) >= 6:
 	sourceDir = sys.argv[1]
 	sourceDirAmigaPath = sys.argv[2]
 	cdName = sys.argv[3]
 	isoFileAmigaPath = sys.argv[4]
-	sortByMethod = "breadth"
-	if len(sys.argv) == 6:
-		sortByMethod = sys.argv[5].lower()
+	sortByMethod = sys.argv[5].lower()
+	prioritizedPaths = []
+	if len(sys.argv) > 6:
+		prioritizedPaths = [sourceDir] + sys.argv[6:]
 
 else:
-	raise SystemExit("Usage: " + sys.argv[0].split('/')[-1] + " sourceDir sourceDirAmigaPath cdName isoFileAmigaPath [sortByMethod (breadth/depth)]")
+	raise SystemExit("Usage: " + sys.argv[0].split('/')[-1] + " sourceDir sourceDirAmigaPath cdName isoFileAmigaPath sortByMethod (breadth/depth) prioritizedPaths")
 
 
 class PathNode:
@@ -42,6 +43,12 @@ class PathNode:
 			return self.name
 		else:
 			return os.path.join(self.parent.getPath(), self.name)
+
+	def __repr__(self):
+		if self.isDir:
+			return "D{:04d}".format(self.num) + "\t" + self.getName()
+		else:
+			return "F{:04d}".format(self.parent.num) + "\t" + self.getName()
 
 def breadthFirstWalker(rootNode):
 	queue = deque()
@@ -96,9 +103,17 @@ print "H0000\t<ISO Header>"
 print "P0000\t<Path Table>"
 print "P0000\t<Path Table>"
 print "C0000\t<Trademark>"
+prioritizedNodes = {}
 for node in sortByWalker(rootNode):
-	if node.isDir:
-		print "D{:04d}".format(node.num) + "\t" + node.getName()
-	else:
-		print "F{:04d}".format(node.parent.num) + "\t" + node.getName()
+	for prioritizedPath in prioritizedPaths:
+		if not prioritizedPath in prioritizedNodes and node.path.endswith(prioritizedPath):
+			prioritizedNodes[prioritizedPath] = node
+
+for prioritizedPath in prioritizedPaths:
+	if prioritizedPath in prioritizedNodes:
+		print prioritizedNodes[prioritizedPath]
+
+for node in sortByWalker(rootNode):
+	if not node in prioritizedNodes.values():
+		print node
 print "E0000\t65536    "
