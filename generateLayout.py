@@ -2,6 +2,7 @@
 
 import sys
 import os
+from collections import deque
 
 if len(sys.argv) == 5:
 	sourceDir = sys.argv[1]
@@ -10,6 +11,42 @@ if len(sys.argv) == 5:
 	isoFileAmigaPath = sys.argv[4]
 else:
 	raise SystemExit("Usage: " + sys.argv[0].split('/')[-1] + " sourceDir sourceDirAmigaPath cdName isoFileAmigaPath")
+
+
+class PathNode:
+	def __init__(self, path, parent):
+		self.path = path
+		self.name = os.path.split(path)[1]
+		self.isDir = os.path.isdir(path)
+		self.parent = parent
+		self.children = None
+
+	def getName(self):
+		if self.parent == self:
+			return "<Root Dir>"
+		else:
+			return self.name
+
+	def getChildren(self):
+		# Cache this so we just traverse the file system the first time
+		if not self.children:
+			self.children = [PathNode(os.path.join(self.path, childPath), self) for childPath in sorted(os.listdir(self.path), key=lambda s: s.upper())]
+		return self.children
+
+	def getPath(self):
+		if self == self.parent:
+			return self.name
+		else:
+			return os.path.join(self.parent.getPath(), self.name)
+
+def breadthFirstWalker(rootNode):
+	queue = deque()
+	queue.appendleft(rootNode)
+	while 0 != len(queue):
+		node = queue.pop()
+		if node.isDir:
+			queue.extendleft(node.getChildren())
+		yield node
 
 
 print "0 0 3 0"
@@ -22,61 +59,30 @@ print
 print
 print
 print
-print
-
-directories = {}
-
-class Directory:
-	def __init__(self, path, fileNames):
-		self.path = path
-		pathParts = path.split("/")
-		self.depth = len(pathParts)
-		if pathParts[-1] != "":
-			self.name = pathParts[-1]
-		else:
-			self.name = "<Root Dir>"
-		self.fileNames = sorted(fileNames, key=lambda s: s.lower())
-	
-	def getParentPath(self):
-		return self.path.rsplit("/", 1)[0]
-
-	def getParent(self):
-		return directories[self.getParentPath()]
-	
-	def __lt__(self, other):
-		if self.depth < other.depth:
-			return True
-		elif self.depth == other.depth:
-			return self.path.upper().split("/") < other.path.upper().split("/")
-		else:
-			return False
-	
-	def __repr__(self):
-		return str(self.depth) + " " + self.name + "-->" + self.getParent().name
-	
 
 print isoFileAmigaPath
-for rootPath, dirNames, fileNames in os.walk(sourceDir.rstrip("/")):
-	path = rootPath.split(sourceDir)[-1]
-	directories[path] = Directory(path, fileNames)
+rootNode = PathNode(sourceDir, None)
+rootNode.parent = rootNode
 
-directoryList = directories.values()
-directoryList.sort()
-for i, directory in enumerate(directoryList):
-	directory.num = i + 1
+dirNum = 0
+for node in breadthFirstWalker(rootNode):
+	if node.isDir:
+		dirNum += 1
+		node.num = dirNum
 
-print "{:04d}".format(len(directoryList)) + "\t" + sourceDirAmigaPath
-for directory in directoryList:
-	parent = directory.getParent()
-	print " {:04d}".format(parent.num) + "\t" + directory.name
+print "{:04d}".format(dirNum) + "\t" + sourceDirAmigaPath
+for node in breadthFirstWalker(rootNode):
+	if node.isDir:
+		print " {:04d}".format(node.parent.num) + "\t" + node.getName()
 print
 
 print "H0000\t<ISO Header>"
 print "P0000\t<Path Table>"
 print "P0000\t<Path Table>"
 print "C0000\t<Trademark>"
-for directory in directoryList:
-	print "D" + "{:04d}".format(directory.num) + "\t" + directory.name
-	for fileName in directory.fileNames:
-		print "F" + "{:04d}".format(directory.num) + "\t" + fileName
+for node in breadthFirstWalker(rootNode):
+	if node.isDir:
+		print "D{:04d}".format(node.num) + "\t" + node.getName()
+	else:
+		print "F{:04d}".format(node.parent.num) + "\t" + node.getName()
 print "E0000\t65536    "
