@@ -15,7 +15,7 @@ if len(sys.argv) >= 6:
 		prioritizedPaths = [sourceDir] + sys.argv[6:]
 
 else:
-	raise SystemExit("Usage: " + sys.argv[0].split('/')[-1] + " sourceDir sourceDirAmigaPath cdName isoFileAmigaPath sortByMethod (breadth/depth) prioritizedPaths")
+	raise SystemExit("Usage: " + sys.argv[0].split('/')[-1] + " sourceDir sourceDirAmigaPath cdName isoFileAmigaPath sortByMethod (breadth/depth) [prioritizedPaths .. ]")
 
 
 class PathNode:
