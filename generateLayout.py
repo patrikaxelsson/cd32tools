@@ -2,7 +2,7 @@
 
 import sys
 import os
-from collections import deque
+from collections import deque, OrderedDict
 
 if len(sys.argv) >= 6:
 	sourceDir = sys.argv[1]
@@ -12,7 +12,7 @@ if len(sys.argv) >= 6:
 	sortByMethod = sys.argv[5].lower()
 	prioritizedPaths = []
 	if len(sys.argv) > 6:
-		prioritizedPaths = [sourceDir] + sys.argv[6:]
+		prioritizedPaths = OrderedDict([(x, None) for x in [sourceDir] + sys.argv[6:]])
 
 else:
 	raise SystemExit("Usage: " + sys.argv[0].split('/')[-1] + " sourceDir sourceDirAmigaPath cdName isoFileAmigaPath sortByMethod (breadth/depth) [prioritizedPaths .. ]")
@@ -84,10 +84,15 @@ rootNode = PathNode(sourceDir, None)
 rootNode.parent = rootNode
 
 dirNum = 0
+prioritizedNodes = {}
 for node in breadthFirstWalker(rootNode):
 	if node.isDir:
 		dirNum += 1
 		node.num = dirNum
+	for prioritizedPathEnd, prioritizedPath in prioritizedPaths.iteritems():
+		if not prioritizedPath and node.path.endswith(prioritizedPathEnd):
+			prioritizedPaths[prioritizedPathEnd] = node.path
+			prioritizedNodes[node.path] = node
 
 print "{:04d}".format(dirNum) + "\t" + sourceDirAmigaPath
 for node in breadthFirstWalker(rootNode):
@@ -103,17 +108,11 @@ print "H0000\t<ISO Header>"
 print "P0000\t<Path Table>"
 print "P0000\t<Path Table>"
 print "C0000\t<Trademark>"
-prioritizedNodes = {}
-for node in sortByWalker(rootNode):
-	for prioritizedPath in prioritizedPaths:
-		if not prioritizedPath in prioritizedNodes and node.path.endswith(prioritizedPath):
-			prioritizedNodes[prioritizedPath] = node
-
-for prioritizedPath in prioritizedPaths:
-	if prioritizedPath in prioritizedNodes:
+for prioritizedPath in prioritizedPaths.values():
+	if prioritizedPath:
 		print prioritizedNodes[prioritizedPath]
 
 for node in sortByWalker(rootNode):
-	if not node in prioritizedNodes.values():
+	if not node.path in prioritizedNodes:
 		print node
 print "E0000\t65536    "
