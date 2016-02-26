@@ -10,7 +10,7 @@ if len(sys.argv) >= 6:
 	cdName = sys.argv[3]
 	isoFileAmigaPath = sys.argv[4]
 	sortByMethod = sys.argv[5].lower()
-	prioritizedPaths = []
+	prioritizedPaths = OrderedDict()
 	if len(sys.argv) > 6:
 		prioritizedPaths = OrderedDict([(x, None) for x in [sourceDir] + sys.argv[6:]])
 
