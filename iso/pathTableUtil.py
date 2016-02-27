@@ -3,11 +3,14 @@
 import sys
 import struct
 
-if len(sys.argv) == 2:
-	isoFile = file(sys.argv[1], "rb")
-	#isoFile = file(sys.argv[1], "rb+")
+if len(sys.argv) == 3 and sys.argv[1] in ("print", "uppercase"):
+	operation = sys.argv[1]
+
+	isoFile = file(sys.argv[2], "rb")
+	if "uppercase" == operation:
+		isoFile = file(sys.argv[2], "rb+")
 else:
-	raise SystemExit("Usage: " + sys.argv[0].split('/')[-1] + " isoFile")
+	raise SystemExit("Usage: " + sys.argv[0].split('/')[-1] + " operation (print/uppercase) isoFile")
 
 sectorSize = 2048
 
@@ -140,36 +143,44 @@ class PathTable:
 		for entry in self.entries:
 			pathElements = [e.name for e in entry.getParents() + [entry]]
 			print entry.getRangeString() + "(" + str(len(pathElements)) + "): " + '/'.join(pathElements)
+	
+	def upperCaseEntries(self):
+		for entry in self.entries:
+			entry.name = entry.name.upper()
 
 
 descriptor = getPrimaryVolumeDescriptor(isoFile)
 print "PathTable size:", descriptor.pathTableSize
 
+
+# Big endian path table is what is used on the CD32
 isoFile.seek(descriptor.pathTableLocMSB * descriptor.logicalBlockSize)
-pathTableMSBData = isoFile.read(descriptor.pathTableSize)
-pathTableMSB = PathTable(pathTableMSBData, False)
+pathTableMSB = PathTable(isoFile.read(descriptor.pathTableSize), False)
+
+# Also process the little endian path table for completeness sake
+isoFile.seek(descriptor.pathTableLocLSB * descriptor.logicalBlockSize)
+pathTableLSB = PathTable(isoFile.read(descriptor.pathTableSize), True)
+	
+# Test comparison
+#isoFile.seek(descriptor.pathTableLocMSB * descriptor.logicalBlockSize)
+#pathTableMSBData = isoFile.read(descriptor.pathTableSize)
 #testDataMSB = pathTableMSB.getEntriesAsData()
 #print "TestDataMSBLength:", len(testDataMSB)
 #print "MatchMSB:", pathTableMSBData == testDataMSB
 
-#pathTableMSB.sortEntriesDepthFirst()
-#isoFile.seek(descriptor.pathTableLocMSB * descriptor.logicalBlockSize)
-#isoFile.write(pathTableMSB.getEntriesAsData())
-#print "Sorted MSB path table!"
+if "uppercase" == operation:
+	pathTableMSB.upperCaseEntries()
+	isoFile.seek(descriptor.pathTableLocMSB * descriptor.logicalBlockSize)
+	isoFile.write(pathTableMSB.getEntriesAsData())
+	print "Uppercased MSB path table!"
 
-#isoFile.seek(descriptor.pathTableLocLSB * descriptor.logicalBlockSize)
-#pathTableLSBData = isoFile.read(descriptor.pathTableSize)
-#pathTableLSB = PathTable(pathTableLSBData, True)
-#testDataLSB = pathTableLSB.getEntriesAsData()
-#print "TestDataLSBLength:", len(testDataMSB)
-#print "MatchLSB:", pathTableLSBData == testDataLSB
-
-#pathTableLSB.sortEntriesDepthFirst()
-#isoFile.seek(descriptor.pathTableLocLSB * descriptor.logicalBlockSize)
-#isoFile.write(pathTableLSB.getEntriesAsData())
-#print "Sorted LSB path table!"
+	pathTableLSB.upperCaseEntries()
+	isoFile.seek(descriptor.pathTableLocLSB * descriptor.logicalBlockSize)
+	isoFile.write(pathTableLSB.getEntriesAsData())
+	print "Uppercased LSB path table!"
 
 isoFile.close()
 
-pathTableMSB.printEntries()
+if "print" == operation:
+	pathTableMSB.printEntries()
 
