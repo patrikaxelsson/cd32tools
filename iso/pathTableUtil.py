@@ -2,6 +2,7 @@
 
 import sys
 import struct
+from collections import deque
 
 if len(sys.argv) == 3 and sys.argv[1] in ("print", "uppercase"):
 	operation = sys.argv[1]
@@ -16,10 +17,24 @@ sectorSize = 2048
 
 isoFile.seek(sectorSize * 0x10)
 
+class DirectoryEntry:
+	def __init__(self, data):
+		self.headerLength = 33
+		self.recordLen, self.extRecordLen, self.extentLoc, self.extentDataLen, self.timestamp, self.flags, self.unitFlags, self.gapSize, self.volSeqNum, self.fileIdLen = struct.unpack(">BB4xI4xI7sBBB2xHB", data[:self.headerLength])
+		self.data = data[:self.recordLen]
+		self.fileId = self.data[self.headerLength:self.headerLength + self.fileIdLen]
+
+	def isEmpty(self):
+		return 0 == self.recordLen
+
+	def __repr__(self):
+		return ",".join([self.fileId, str(self.recordLen)])
+
 class PrimaryVolumeDescriptor:
 	def __init__(self, volumeDescriptorData):
 		self.logicalBlockSize, self.pathTableSize, self.pathTableLocMSB = struct.unpack(">2xH4xI8xI", volumeDescriptorData[128:128 + 4 + 8 + 8 + 4])
-		self.pathTableLocLSB = struct.unpack("<I", volumeDescriptorData[140:140+ 4])[0]
+		self.pathTableLocLSB = struct.unpack("<I", volumeDescriptorData[140:140 + 4])[0]
+		self.rootDirEntry = DirectoryEntry(volumeDescriptorData[156:156 + 34])
 
 def getPrimaryVolumeDescriptor(isoFile):
 	terminatorCode = 255
@@ -39,8 +54,9 @@ class PathTableEntry:
 		self.littleEndian = littleEndian
 		self.position = position
 		self.headerLength = 8
-		nameLen, self.extAttribLen, self.extAttribLoc, self.parentNum = struct.unpack(self.getHeaderStruct(), entryDataStart[:self.headerLength])
+		nameLen, self.extentLen, self.extentLoc, self.parentNum = struct.unpack(self.getHeaderStruct(), entryDataStart[:self.headerLength])
 		self.name = entryDataStart[self.headerLength:self.headerLength + nameLen]
+		self.children = []
 	
 	def __repr__(self):
 		return self.name + "'," + ",".join((str(self.parentNum), str(self.position), str(self.getSize())))
@@ -68,7 +84,7 @@ class PathTableEntry:
 	def getAsData(self):
 		nameLen = len(self.name)
 		completeStruct = self.getHeaderStruct() + str(nameLen) + "s" + str(nameLen % 2) + "x"
-		data = struct.pack(completeStruct, nameLen, self.extAttribLen, self.extAttribLoc, self.parentNum, self.name)
+		data = struct.pack(completeStruct, nameLen, self.extentLen, self.extentLoc, self.parentNum, self.name)
 		return data
 
 	def getParents(self):
@@ -80,6 +96,15 @@ class PathTableEntry:
 	
 		parents.reverse()
 		return parents
+
+
+def breadthFirstWalker(rootNode):
+	queue = deque()
+	queue.appendleft(rootNode)
+	while 0 != len(queue):
+		node = queue.pop()
+		queue.extendleft(node.children)
+		yield node
 
 class PathTable:
 	def __init__(self, pathTableData, littleEndian):
@@ -95,43 +120,24 @@ class PathTable:
 		# Setup real parent links, which will survive a list sort
 		for entry in self.entries:
 			entry.parent = self.entries[entry.parentNum - 1]
-
-
-	def createChildren(self):
-		for entry in self.entries:
-			entry.children = []
-			for potentialChild in self.getNonRootEntries():
-				if entry == potentialChild.parent:
-					entry.children.append(potentialChild)
-
-	def updateParentNumsAndPositions(self):
-		currentPos = 0
-		for entry in self.entries:
-			entry.parentNum = self.getEntryNum(entry.parent)
-			entry.position = currentPos
-			currentPos = currentPos + entry.getSize()
-			
-	def getEntryNum(self, entry):
-		return self.entries.index(entry) + 1
-
+			if entry != entry.parent: # Avoid the root being its own child also, makes it harder to walk the graph :)
+				entry.parent.children.append(entry)
+		
 	def getRootEntry(self):
 		return self.entries[0]
 	
 	def getNonRootEntries(self):
 		return self.entries[1:]
 
-	def getAllChildren(self, entry):
-		children = []
-		for child in entry.children:
-			children = children + [child] + self.getAllChildren(child)
-		return children
+	def upperCaseEntries(self):
+		for entry in self.entries:
+			entry.name = entry.name.upper()
 
-	def sortEntriesDepthFirst(self):
-		# Only need children lists for this operation
-		self.createChildren()
-		rootEntry = self.getRootEntry()
-		self.entries = [rootEntry] + self.getAllChildren(self.getRootEntry())
-		self.updateParentNumsAndPositions()
+	def sortEntries(self):
+		for entry in self.entries:
+			entry.children.sort(key=lambda e: e.name)
+
+		self.entries = [e for e in breadthFirstWalker(self.getRootEntry())]
 
 	def getEntriesAsData(self):
 		data = ""
@@ -144,15 +150,42 @@ class PathTable:
 			pathElements = [e.name for e in entry.getParents() + [entry]]
 			print entry.getRangeString() + "(" + str(len(pathElements)) + "): " + '/'.join(pathElements)
 	
-	def upperCaseEntries(self):
-		for entry in self.entries:
-			entry.name = entry.name.upper()
 
 
 descriptor = getPrimaryVolumeDescriptor(isoFile)
 print "PathTable size:", descriptor.pathTableSize
 
+def sortDirEntriesUppercased(descriptor, pathTableEntry):
+	isoFile.seek(pathTableEntry.extentLoc * descriptor.logicalBlockSize)
+	extentData = isoFile.read(descriptor.logicalBlockSize)
+	dirEntry = DirectoryEntry(extentData)
+	extentData += isoFile.read(max(0, dirEntry.extentDataLen - descriptor.logicalBlockSize))
+	currentPos = dirEntry.recordLen
+	parentDirEntry = DirectoryEntry(extentData[currentPos:])
+	currentPos += parentDirEntry.recordLen
+	childDirEntries = []
+	while currentPos <  dirEntry.extentDataLen - 33:
+		childDirEntry = DirectoryEntry(extentData[currentPos:])
+		currentPos += childDirEntry.recordLen
+		if childDirEntry.isEmpty():
+			spaceLeftInBlock = descriptor.logicalBlockSize - (currentPos % descriptor.logicalBlockSize)
+			currentPos += spaceLeftInBlock 
+			continue
+		childDirEntries.append(childDirEntry)
 
+	isoFile.seek(pathTableEntry.extentLoc * descriptor.logicalBlockSize)
+	currentPos = 0
+	for dirEntry in [dirEntry, parentDirEntry] + sorted(childDirEntries, key=lambda e: e.fileId.upper()):
+		spaceLeftInBlock = descriptor.logicalBlockSize - (currentPos % descriptor.logicalBlockSize)
+		if len(dirEntry.data) > spaceLeftInBlock:
+			isoFile.write('\0' * spaceLeftInBlock)
+			currentPos += spaceLeftInBlock
+		isoFile.write(dirEntry.data)
+		currentPos += len(dirEntry.data)
+
+	spaceLeftInBlock = descriptor.logicalBlockSize - (currentPos % descriptor.logicalBlockSize)
+	isoFile.write('\0' * spaceLeftInBlock)
+	
 # Big endian path table is what is used on the CD32
 isoFile.seek(descriptor.pathTableLocMSB * descriptor.logicalBlockSize)
 pathTableMSB = PathTable(isoFile.read(descriptor.pathTableSize), False)
@@ -170,14 +203,20 @@ pathTableLSB = PathTable(isoFile.read(descriptor.pathTableSize), True)
 
 if "uppercase" == operation:
 	pathTableMSB.upperCaseEntries()
+	pathTableMSB.sortEntries()
 	isoFile.seek(descriptor.pathTableLocMSB * descriptor.logicalBlockSize)
 	isoFile.write(pathTableMSB.getEntriesAsData())
-	print "Uppercased MSB path table!"
+	print "Uppercased and resorted MSB path table!"
 
 	pathTableLSB.upperCaseEntries()
+	pathTableLSB.sortEntries()
 	isoFile.seek(descriptor.pathTableLocLSB * descriptor.logicalBlockSize)
 	isoFile.write(pathTableLSB.getEntriesAsData())
-	print "Uppercased LSB path table!"
+	print "Uppercased and resorted LSB path table!"
+	
+	for entry in pathTableMSB.entries:
+		sortDirEntriesUppercased(descriptor, entry)
+	print "Sorted directory entries in uppercased name order!"
 
 isoFile.close()
 
