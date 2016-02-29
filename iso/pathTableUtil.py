@@ -133,11 +133,18 @@ class PathTable:
 		for entry in self.entries:
 			entry.name = entry.name.upper()
 
+	def updateParentNums(self):
+		for i, entry in enumerate(self.entries):
+			for child in entry.children:
+				child.parentNum = i + 1
+
 	def sortEntries(self):
 		for entry in self.entries:
 			entry.children.sort(key=lambda e: e.name)
 
 		self.entries = [e for e in breadthFirstWalker(self.getRootEntry())]
+
+		self.updateParentNums()
 
 	def getEntriesAsData(self):
 		data = ""
