@@ -182,7 +182,7 @@ def sortDirEntriesUppercased(descriptor, pathTableEntry):
 
 	isoFile.seek(pathTableEntry.extentLoc * descriptor.logicalBlockSize)
 	currentPos = 0
-	for dirEntry in [dirEntry, parentDirEntry] + sorted(childDirEntries, key=lambda e: e.fileId.upper()):
+	for dirEntry in [dirEntry, parentDirEntry] + sorted(childDirEntries, key=lambda e: e.fileId.rsplit(";",1)[0].upper()):
 		spaceLeftInBlock = descriptor.logicalBlockSize - (currentPos % descriptor.logicalBlockSize)
 		if len(dirEntry.data) > spaceLeftInBlock:
 			isoFile.write('\0' * spaceLeftInBlock)
