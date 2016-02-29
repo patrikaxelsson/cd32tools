@@ -18,23 +18,75 @@ sectorSize = 2048
 isoFile.seek(sectorSize * 0x10)
 
 class DirectoryEntry:
-	def __init__(self, data):
-		self.headerLength = 33
-		self.recordLen, self.extRecordLen, self.extentLoc, self.extentDataLen, self.timestamp, self.flags, self.unitFlags, self.gapSize, self.volSeqNum, self.fileIdLen = struct.unpack(">BB4xI4xI7sBBB2xHB", data[:self.headerLength])
-		self.data = data[:self.recordLen]
-		self.fileId = self.data[self.headerLength:self.headerLength + self.fileIdLen]
+	def __init__(self, isoFile, location = None, blockSize = None):
+		if location and blockSize:
+			isoFile.seek(location * blockSize)
+
+		self.data = isoFile.read(1)
+		self.recordLen = struct.unpack("B", self.data)[0] 
+		self.extentLoc = 0
+		self.extentDataLen = 0
+		self.flags = 0
+		self.fileId = ""
+		self.parent = None
+		self.children = []
+		if self.recordLen > 0:
+			headerLength = 33
+			self.data += isoFile.read(self.recordLen - 1)
+			self.extRecordLen, self.extentLoc, self.extentDataLen, self.timestamp, self.flags, self.unitFlags, self.gapSize, self.volSeqNum, self.fileIdLen = struct.unpack(">B4xI4xI7sBBB2xHB", self.data[1:headerLength])
+			self.fileId = self.data[headerLength:headerLength + self.fileIdLen]
+			
+			if self.isDir() and location == self.extentLoc:
+				self.populateDirExtentData(isoFile, blockSize)
+
+	def populateDirExtentData(self, isoFile, blockSize):
+		endPos = self.extentLoc * blockSize + self.extentDataLen
+		self.parent = DirectoryEntry(isoFile)
+		while isoFile.tell() < endPos:
+			childDirEntry = DirectoryEntry(isoFile)
+			if childDirEntry.isEmpty():
+				spaceLeftInBlock = blockSize - (isoFile.tell() % blockSize)
+				isoFile.seek(spaceLeftInBlock, 1)
+			else:
+				self.children.append(childDirEntry)
 
 	def isEmpty(self):
 		return 0 == self.recordLen
 
+	def isDir(self):
+		return bool(self.flags & 0x02)
+
+	def getName(self):
+		return self.fileId.rsplit(";", 1)[0]
+
+	def getAsData(self):
+		return self.data
+
+	def sortChildrenUppercased(self):
+		self.children.sort(key=lambda c: c.getName().upper())
+
+	def writeToFile(self, isoFile, blockSize):
+		isoFile.seek(self.extentLoc * blockSize)
+		isoFile.write(self.getAsData())
+		isoFile.write(self.parent.getAsData())
+
+		for child in self.children:
+			spaceLeftInBlock = blockSize - (isoFile.tell() % blockSize)
+			if child.recordLen > spaceLeftInBlock:
+				isoFile.write('\0' * spaceLeftInBlock)
+			isoFile.write(child.getAsData())
+			
+		spaceLeftInBlock = blockSize - (isoFile.tell() % blockSize)
+		isoFile.write('\0' * spaceLeftInBlock)
+
 	def __repr__(self):
-		return ",".join([self.fileId, str(self.recordLen)])
+		return ",".join([self.getName(), str(self.recordLen), str(self.isDir()), str(self.extentLoc), str(self.extentDataLen)])
+
 
 class PrimaryVolumeDescriptor:
 	def __init__(self, volumeDescriptorData):
 		self.logicalBlockSize, self.pathTableSize, self.pathTableLocMSB = struct.unpack(">2xH4xI8xI", volumeDescriptorData[128:128 + 4 + 8 + 8 + 4])
 		self.pathTableLocLSB = struct.unpack("<I", volumeDescriptorData[140:140 + 4])[0]
-		self.rootDirEntry = DirectoryEntry(volumeDescriptorData[156:156 + 34])
 
 def getPrimaryVolumeDescriptor(isoFile):
 	terminatorCode = 255
@@ -162,36 +214,11 @@ class PathTable:
 descriptor = getPrimaryVolumeDescriptor(isoFile)
 print "PathTable size:", descriptor.pathTableSize
 
-def sortDirEntriesUppercased(descriptor, pathTableEntry):
-	isoFile.seek(pathTableEntry.extentLoc * descriptor.logicalBlockSize)
-	extentData = isoFile.read(descriptor.logicalBlockSize)
-	dirEntry = DirectoryEntry(extentData)
-	extentData += isoFile.read(max(0, dirEntry.extentDataLen - descriptor.logicalBlockSize))
-	currentPos = dirEntry.recordLen
-	parentDirEntry = DirectoryEntry(extentData[currentPos:])
-	currentPos += parentDirEntry.recordLen
-	childDirEntries = []
-	while currentPos <  dirEntry.extentDataLen - 33:
-		childDirEntry = DirectoryEntry(extentData[currentPos:])
-		currentPos += childDirEntry.recordLen
-		if childDirEntry.isEmpty():
-			spaceLeftInBlock = descriptor.logicalBlockSize - (currentPos % descriptor.logicalBlockSize)
-			currentPos += spaceLeftInBlock 
-			continue
-		childDirEntries.append(childDirEntry)
-
-	isoFile.seek(pathTableEntry.extentLoc * descriptor.logicalBlockSize)
-	currentPos = 0
-	for dirEntry in [dirEntry, parentDirEntry] + sorted(childDirEntries, key=lambda e: e.fileId.rsplit(";",1)[0].upper()):
-		spaceLeftInBlock = descriptor.logicalBlockSize - (currentPos % descriptor.logicalBlockSize)
-		if len(dirEntry.data) > spaceLeftInBlock:
-			isoFile.write('\0' * spaceLeftInBlock)
-			currentPos += spaceLeftInBlock
-		isoFile.write(dirEntry.data)
-		currentPos += len(dirEntry.data)
-
-	spaceLeftInBlock = descriptor.logicalBlockSize - (currentPos % descriptor.logicalBlockSize)
-	isoFile.write('\0' * spaceLeftInBlock)
+def sortDirEntriesUppercased(pathTable, blockSize):
+	for pathTableEntry in pathTable.entries:
+		dirEntry = DirectoryEntry(isoFile, pathTableEntry.extentLoc, blockSize)
+		dirEntry.sortChildrenUppercased()
+		dirEntry.writeToFile(isoFile, blockSize)
 	
 # Big endian path table is what is used on the CD32
 isoFile.seek(descriptor.pathTableLocMSB * descriptor.logicalBlockSize)
@@ -221,8 +248,7 @@ if "uppercase" == operation:
 	isoFile.write(pathTableLSB.getEntriesAsData())
 	print "Uppercased and resorted LSB path table!"
 	
-	for entry in pathTableMSB.entries:
-		sortDirEntriesUppercased(descriptor, entry)
+	sortDirEntriesUppercased(pathTableMSB, descriptor.logicalBlockSize)
 	print "Sorted directory entries in uppercased name order!"
 
 isoFile.close()
