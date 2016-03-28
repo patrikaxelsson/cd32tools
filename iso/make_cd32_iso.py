@@ -18,13 +18,18 @@ import glob             # glob() expande los patrones de los ficheros en windows
 import os               # path.basename(), path.exists()
 from optparse import make_option, OptionParser
 
-# CD32 Application Data Field
-# 0x13 * 2048 = Pointer to the directory in the disk (0x9800)
-# 0x12 * 2048 = Pointer to the CD32.TM file, it's embedded in 0x9000 for not 
-#               need to add to the disk and not need to search it :P
-#                     F   S           T   M       *FS_Sector             TM_Sector*
-CD32_AppDat = b'\x00\x46\x53\x00\x00\x54\x4d\x00\x13\x00\x00\x00\x00\x00\x00\x00\x12'
-
+# List of CDFS options normally set by ISOCD and read by the CD32. Stored one
+# byte into the Application Data field of the ISO9660 Primary Volume Descriptor.
+# FS     = Fast Search option enabled
+# 0x0000 = Size of Fast Search option data
+# TM     = TradeMark option
+# 0x0014 = Size of TradeMark option data
+# 0x00000000 0x00000012 0x00000000 0x00000000 0x00000000
+#        = TradeMark option data which contains a block/sector pointer to the
+#          CD32.TM file. It's embedded in 0x9000 for not need to add to the disk
+#          and not need to search it :P
+CDFS_Options = b'\x46\x53\x00\x00\x54\x4d\x00\x14\x00\x00\x00\x00\x00\x00\x00\x12\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+CD32_AppDat = b'\x00' + CDFS_Options + (512 - 1 - len(CDFS_Options)) * b'\x00'
 # Procesa la línea de comandos    
 def procesar_linea_comandos(linea_de_comandos):
     """
@@ -90,14 +95,14 @@ def main(linea_de_comandos=None):
         if ord(iso_tmp[0x808C]) != 0x13 and ord(iso_tmp[0x8097]) != 0x15:
             print "Invalid ISO image"
         else:
-            CD32_AppDat_tmp = iso_tmp[0x8370: 0x8373] + CD32_AppDat
-            
-            # Insert the two copies of Application Data Field and CD32.TM
-            iso_tmp = iso_tmp [0: 0x8370] + CD32_AppDat_tmp + \
-                        iso_tmp [0x8370 + len(CD32_AppDat_tmp): 0x8B70] + \
-                        CD32_AppDat_tmp + iso_tmp [0x8B70 + len(CD32_AppDat_tmp): 0x9000] + \
+            # Insert the Application Data Field into the primary volume
+            # descriptor which must be at 0x10 * 2048 = 0x8000 and the
+            # trademark file into a sector of free space which must be
+            # at 0x12 * 2048 = 0x9000.
+            iso_tmp = iso_tmp [0: 0x8373] + CD32_AppDat + \
+                        iso_tmp [0x8373 + len(CD32_AppDat): 0x9000] + \
                         trademark + iso_tmp [0x9000 + len(trademark):]
- 
+
             # Save the ISO file
             print "Saving file: " + nombre_fichero.lower().replace(".raw",".iso")
             with open(nombre_fichero.lower().replace(".raw",".iso"),"wb") as fichero:
