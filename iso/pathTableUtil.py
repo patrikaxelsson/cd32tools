@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import sys
+import os
 import struct
 from collections import deque
 
@@ -11,7 +12,7 @@ if len(sys.argv) == 3 and sys.argv[1] in ("print", "uppercase"):
 	if "uppercase" == operation:
 		isoFile = file(sys.argv[2], "rb+")
 else:
-	raise SystemExit("Usage: " + sys.argv[0].split('/')[-1] + " operation (print/uppercase) isoFile")
+	raise SystemExit("Usage: " + os.path.basename(sys.argv[0]) + " operation (print/uppercase) isoFile")
 
 sectorSize = 2048
 

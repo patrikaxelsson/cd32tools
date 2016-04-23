@@ -15,13 +15,13 @@ if len(sys.argv) >= 6:
 		prioritizedPaths = OrderedDict([(x, None) for x in [sourceDir] + sys.argv[6:]])
 
 else:
-	raise SystemExit("Usage: " + sys.argv[0].split('/')[-1] + " sourceDir sourceDirAmigaPath cdName isoFileAmigaPath sortByMethod (breadth/depth) [prioritizedPaths .. ]")
+	raise SystemExit("Usage: " + os.path.basename(sys.argv[0]) + " sourceDir sourceDirAmigaPath cdName isoFileAmigaPath sortByMethod (breadth/depth) [prioritizedPaths .. ]")
 
 
 class PathNode:
 	def __init__(self, path, parent):
 		self.path = path
-		self.name = os.path.split(path)[1]
+		self.name = os.path.basename(path)
 		self.isDir = os.path.isdir(path)
 		self.parent = parent
 		self.children = None
